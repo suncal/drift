@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>DRIFT — a pocket universe</title>
+<meta name="description" content="A pocket universe in your browser. Explore seeded star systems and log discoveries — or race the asteroid gauntlet.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #04060b;
+    --ink: #e9eef7;
+    --dim: #7e8aa3;
+    --teal: #59e3ff;
+    --danger: #ff5d73;
+    --panel: rgba(10, 14, 24, 0.88);
+    --line: rgba(255, 255, 255, 0.09);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  body::after {
+    content: ''; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(0,0,0,0.5) 100%);
+  }
+
+  .hud { position: fixed; z-index: 10; }
+  #topbar {
+    top: 0; left: 0; right: 0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 18px 22px; pointer-events: none;
+  }
+  #wordmark { font-weight: 700; letter-spacing: 0.32em; font-size: 15px; }
+  #wordmark .star { color: var(--teal); }
+  #sectorname { color: var(--dim); font-size: 12px; letter-spacing: 0.18em; margin-top: 5px; text-transform: uppercase; }
+  #readout { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; color: var(--dim); letter-spacing: 0.1em; line-height: 1.7; }
+  #readout b { color: var(--ink); font-weight: 500; }
+  #readout .warn { color: var(--danger); }
+
+  #scanwrap {
+    bottom: 90px; left: 50%; transform: translateX(-50%);
+    text-align: center; pointer-events: none;
+    opacity: 0; transition: opacity 0.3s;
+  }
+  #scanwrap.show { opacity: 1; }
+  #scanlabel { font-size: 12px; letter-spacing: 0.28em; color: var(--teal); text-transform: uppercase; margin-bottom: 8px; }
+  #scanbar { width: 210px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.12); overflow: hidden; margin: 0 auto; }
+  #scanfill { height: 100%; width: 0%; background: var(--teal); border-radius: 2px; }
+
+  #jumpbtn, #thrustbtn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    font-family: inherit; font-size: 13px; letter-spacing: 0.12em;
+    padding: 12px 22px; border-radius: 999px; cursor: pointer;
+    backdrop-filter: blur(8px); transition: border-color 0.25s, transform 0.15s;
+  }
+  #jumpbtn { bottom: 26px; left: 50%; transform: translateX(-50%); border-color: rgba(89,227,255,0.5); display: none; }
+  #jumpbtn.show { display: block; animation: glowpulse 1.8s ease-in-out infinite; }
+  @keyframes glowpulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(89,227,255,0); }
+    50% { box-shadow: 0 0 24px 2px rgba(89,227,255,0.25); }
+  }
+  #thrustbtn { bottom: 24px; right: 22px; display: none; }
+  @media (pointer: coarse) { #thrustbtn { display: block; } }
+  #viewbtn {
+    position: fixed; bottom: 24px; right: 22px;
+    background: var(--panel); border: 1px solid var(--line); color: var(--ink);
+    font-family: inherit; font-size: 12px; letter-spacing: 0.12em;
+    padding: 10px 18px; border-radius: 999px; cursor: pointer;
+    backdrop-filter: blur(8px); transition: border-color 0.25s;
+  }
+  #viewbtn:hover { border-color: rgba(89,227,255,0.5); }
+  @media (pointer: coarse) { #viewbtn { right: 150px; } }
+
+  /* first-person cockpit overlay */
+  #cockpitui { position: fixed; inset: 0; z-index: 6; pointer-events: none; display: none; }
+  body.cockpit #cockpitui { display: block; }
+  #cockpitui .frame {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 120% 100% at 50% 46%, transparent 62%, rgba(4,6,12,0.85) 96%),
+      linear-gradient(to top, rgba(4,6,12,0.9) 0%, transparent 12%);
+  }
+  #cockpitui .reticle {
+    position: absolute; left: 50%; top: 46%;
+    transform: translate(-50%, -50%);
+    width: 44px; height: 44px; opacity: 0.75;
+  }
+  #cockpitui .reticle::before, #cockpitui .reticle::after {
+    content: ''; position: absolute; background: var(--teal);
+  }
+  #cockpitui .reticle::before { left: 50%; top: 0; width: 1px; height: 100%; transform: translateX(-50%); }
+  #cockpitui .reticle::after { top: 50%; left: 0; height: 1px; width: 100%; transform: translateY(-50%); }
+  #cockpitui .reticle .dot {
+    position: absolute; left: 50%; top: 50%; width: 5px; height: 5px;
+    border: 1px solid var(--teal); border-radius: 50%;
+    transform: translate(-50%, -50%); background: transparent;
+  }
+
+  #controlshint {
+    bottom: 24px; left: 22px; color: var(--dim); font-size: 11.5px;
+    letter-spacing: 0.1em; line-height: 1.8; pointer-events: none;
+  }
+  #controlshint b { color: var(--ink); font-weight: 500; }
+
+  #toast {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 15;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px 22px; font-size: 13px; letter-spacing: 0.06em;
+    text-align: center; opacity: 0; transition: opacity 0.4s; pointer-events: none;
+    backdrop-filter: blur(8px); max-width: 340px;
+  }
+  #toast.show { opacity: 1; }
+  #toast .t1 { color: var(--teal); font-size: 11px; letter-spacing: 0.26em; text-transform: uppercase; margin-bottom: 3px; }
+
+  #vignette-hit {
+    position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(255,60,80,0.45) 100%);
+    transition: opacity 0.1s;
+  }
+  #whiteout {
+    position: fixed; inset: 0; z-index: 30; pointer-events: none; opacity: 0;
+    background: #cfeeff; transition: opacity 0.5s;
+  }
+  #atmoflash {
+    position: fixed; inset: 0; z-index: 29; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.95) 0%, rgba(160,200,255,0.9) 60%, rgba(80,120,200,0.85) 100%);
+    transition: opacity 0.45s;
+  }
+  #entryheat {
+    position: fixed; inset: 0; z-index: 28; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 38%, rgba(255,110,30,0.55) 78%, rgba(255,60,10,0.85) 100%);
+  }
+  #warp {
+    position: fixed; inset: 0; z-index: 28; pointer-events: none; opacity: 0;
+    background:
+      radial-gradient(circle at center, rgba(255,255,255,0.9) 0%, rgba(160,220,255,0.35) 18%, transparent 45%),
+      repeating-conic-gradient(from 0deg, rgba(190,230,255,0.28) 0deg 1deg, transparent 1deg 7deg);
+    filter: blur(1.5px);
+  }
+  #boostwrap {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    z-index: 10; width: 150px; display: none;
+    flex-direction: column; align-items: center; gap: 5px; pointer-events: none;
+  }
+  body.playing #boostwrap { display: flex; }
+  #boostbar { width: 100%; height: 3px; border-radius: 2px; background: rgba(255,255,255,0.1); overflow: hidden; }
+  #boostfill { height: 100%; width: 100%; background: var(--teal); border-radius: 2px; }
+  #boostlabel { font-size: 9px; letter-spacing: 0.3em; color: var(--dim); text-transform: uppercase; }
+
+  .card-backdrop {
+    position: fixed; inset: 0; z-index: 20;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(2, 4, 9, 0.6); backdrop-filter: blur(4px);
+    opacity: 0; pointer-events: none; transition: opacity 0.45s;
+  }
+  .card-backdrop.show { opacity: 1; pointer-events: auto; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: 36px 36px 30px; max-width: 400px; width: calc(100% - 48px);
+    text-align: center; backdrop-filter: blur(16px);
+    box-shadow: 0 24px 80px rgba(0,0,0,0.65);
+    transform: translateY(12px); transition: transform 0.45s cubic-bezier(0.2,0.9,0.3,1);
+  }
+  .card-backdrop.show .card { transform: translateY(0); }
+  .card h1 { font-size: 24px; letter-spacing: 0.34em; font-weight: 700; }
+  .card h1 .star { color: var(--teal); }
+  .card .tag { color: var(--dim); font-size: 12.5px; letter-spacing: 0.22em; text-transform: uppercase; margin: 8px 0 26px; }
+  .modebtn {
+    display: block; width: 100%; text-align: left;
+    background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 14px;
+    color: var(--ink); font-family: inherit; padding: 16px 18px; margin: 10px 0;
+    cursor: pointer; transition: border-color 0.2s, background 0.2s, transform 0.15s;
+  }
+  .modebtn:hover { border-color: rgba(89,227,255,0.55); background: rgba(89,227,255,0.05); }
+  .modebtn:active { transform: scale(0.98); }
+  .modebtn .m1 { font-size: 15px; font-weight: 700; letter-spacing: 0.14em; }
+  .modebtn .m1 .accent { color: var(--teal); }
+  .modebtn .m2 { font-size: 12px; color: var(--dim); margin-top: 4px; line-height: 1.5; }
+  .modebtn.danger:hover { border-color: rgba(255,93,115,0.55); background: rgba(255,93,115,0.05); }
+  .modebtn.danger .m1 .accent { color: var(--danger); }
+  .card .foot { color: var(--dim); font-size: 11px; letter-spacing: 0.1em; margin-top: 18px; line-height: 1.7; }
+
+  .statrow { display: flex; justify-content: center; gap: 30px; margin: 18px 0 22px; }
+  .stat .v { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 10px; letter-spacing: 0.22em; color: var(--dim); text-transform: uppercase; margin-top: 3px; }
+  .btn {
+    font-family: inherit; font-size: 13.5px; letter-spacing: 0.08em;
+    padding: 13px 26px; border-radius: 999px; border: none; cursor: pointer;
+    margin: 4px 3px; transition: transform 0.15s;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-teal { background: var(--teal); color: #04222b; font-weight: 700; }
+  .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  #runover h2 { font-size: 18px; letter-spacing: 0.26em; }
+  #discovery-list {
+    text-align: left; max-height: 180px; overflow-y: auto; margin: 14px 0 8px;
+    font-size: 12.5px; line-height: 2; color: var(--dim);
+  }
+  #discovery-list b { color: var(--ink); font-weight: 500; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="vignette-hit"></div>
+<div id="whiteout"></div>
+<div id="atmoflash"></div>
+<div id="entryheat"></div>
+<div id="warp"></div>
+<div id="boostwrap"><div id="boostbar"><div id="boostfill"></div></div><div id="boostlabel">boost · shift</div></div>
+
+<div class="hud" id="topbar">
+  <div>
+    <div id="wordmark">DRIFT<span class="star"> ✦</span></div>
+    <div id="sectorname"></div>
+  </div>
+  <div id="readout"></div>
+</div>
+
+<div class="hud" id="scanwrap">
+  <div id="scanlabel">Scanning</div>
+  <div id="scanbar"><div id="scanfill"></div></div>
+</div>
+
+<button class="hud" id="jumpbtn">⟶ JUMP TO NEXT SECTOR</button>
+<button class="hud" id="thrustbtn">▲ THRUST</button>
+<button class="hud" id="viewbtn">◉ COCKPIT · V</button>
+<button class="hud" id="logbtn" style="bottom: 92px; right: auto; left: 22px; position: fixed; background: var(--panel); border: 1px solid var(--line); color: var(--ink); font-family: inherit; font-size: 12px; letter-spacing: 0.12em; padding: 10px 18px; border-radius: 999px; cursor: pointer; backdrop-filter: blur(8px); display: none;">◈ LOG</button>
+
+<div class="card-backdrop" id="journal">
+  <div class="card">
+    <h2 style="font-size:17px;letter-spacing:0.26em;">DISCOVERY LOG</h2>
+    <div id="journal-list" style="text-align:left;max-height:300px;overflow-y:auto;margin:16px 0 10px;font-size:12.5px;line-height:2;color:var(--dim);"></div>
+    <button class="btn btn-ghost" id="journal-close">Close</button>
+  </div>
+</div>
+<div id="cockpitui"><div class="frame"></div><div class="reticle"><div class="dot"></div></div></div>
+<div class="hud" id="controlshint"></div>
+
+<div id="toast"><div class="t1" id="toast-t1"></div><div id="toast-t2"></div></div>
+<div id="beaconmark">◇<span id="beacondist"></span></div>
+<style>
+  #beaconmark {
+    position: fixed; z-index: 8; pointer-events: none;
+    color: var(--teal); font-size: 22px; display: none;
+    transform: translate(-50%, -50%); text-shadow: 0 0 12px rgba(89,227,255,0.8);
+    text-align: center;
+  }
+  #beaconmark span { display: block; font-size: 10px; letter-spacing: 0.12em; margin-top: -2px; }
+</style>
+
+<!-- menu -->
+<div class="card-backdrop show" id="menu">
+  <div class="card">
+    <h1>DRIFT<span class="star"> ✦</span></h1>
+    <div class="tag">a pocket universe</div>
+    <button class="modebtn" id="mode-explore">
+      <div class="m1"><span class="accent">EXPLORE</span> — Cartographer</div>
+      <div class="m2">Drift through endless seeded star systems. Scan every world, build your discovery log, jump deeper.</div>
+    </button>
+    <button class="modebtn danger" id="mode-run">
+      <div class="m1"><span class="accent">RUN</span> — the Gauntlet</div>
+      <div class="m2">A dense asteroid corridor. Thread it, chain the beacons, keep your hull. 60 seconds. Beat your best.</div>
+    </button>
+    <div class="foot" id="menufoot">Steer with the mouse · <b>W / hold click</b> to thrust · <b>S</b> to brake</div>
+  </div>
+</div>
+
+<!-- run over -->
+<div class="card-backdrop" id="runover">
+  <div class="card">
+    <h2 id="runover-title">RUN COMPLETE</h2>
+    <div class="statrow">
+      <div class="stat"><div class="v" id="ro-score">0</div><div class="k">score</div></div>
+      <div class="stat"><div class="v" id="ro-best">0</div><div class="k">best</div></div>
+      <div class="stat"><div class="v" id="ro-rings">0</div><div class="k">beacons</div></div>
+    </div>
+    <button class="btn btn-teal" id="ro-again">Run again</button>
+    <button class="btn btn-ghost" id="ro-menu">Menu</button>
+  </div>
+</div>
+
+<!-- sector complete -->
+<div class="card-backdrop" id="sectordone">
+  <div class="card">
+    <h2 style="font-size:18px;letter-spacing:0.26em;">SECTOR CHARTED</h2>
+    <div id="discovery-list"></div>
+    <button class="btn btn-teal" id="sd-jump">Jump to next sector</button>
+    <button class="btn btn-ghost" id="sd-menu">Menu</button>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="main.js"></script>
+</body>
+</html>
